@@ -168,7 +168,7 @@ static int pinentry_read(int from, char **retstr)
 }
 
 #ifndef HAVE_VDPRINTF
-static int vdprintf(int fd, const char *format, va_list ap)
+int vdprintf(int fd, const char *format, va_list ap)
 {
 	char buffer[2049];
 	int size = vsnprintf(buffer, sizeof(buffer), format, ap);

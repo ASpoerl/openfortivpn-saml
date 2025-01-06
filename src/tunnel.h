@@ -49,9 +49,9 @@
 
 enum tunnel_state {
 	STATE_DOWN,
-	STATE_CONNECTING,
+    STATE_CONNECTING,
 	STATE_UP,
-	STATE_DISCONNECTING
+    STATE_DISCONNECTING
 };
 
 struct tunnel {
@@ -75,6 +75,8 @@ struct tunnel {
 
 	int (*on_ppp_if_up)(struct tunnel *tunnel);
 	int (*on_ppp_if_down)(struct tunnel *tunnel);
+    void (*state_callback)(int state);
+    int (*stop_callback)();
 };
 
 struct token {
@@ -86,7 +88,7 @@ int ppp_interface_is_up(struct tunnel *tunnel);
 
 int ssl_connect(struct tunnel *tunnel);
 
-int run_tunnel(struct vpn_config *config);
+int run_tunnel(struct vpn_config *config, void (*state_callback)(int state), int (*stop_callback)());
 
 #define ARRAY_SIZE(x)	(sizeof(x) / sizeof((x)[0]))
 

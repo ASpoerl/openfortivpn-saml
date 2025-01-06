@@ -93,9 +93,10 @@ struct vpn_config {
 	char			otp[OTP_SIZE + 1];
 	char			*cookie;
 	int			saml_port;
-	char			saml_session_id[MAX_SAML_SESSION_ID_LENGTH];
+    void (*saml_callback)(const char *url);
+    char			saml_session_id[MAX_SAML_SESSION_ID_LENGTH];
 	char			*otp_prompt;
-	unsigned int		otp_delay;
+    int   		otp_delay;
 	int			no_ftm_push;
 	char			*pinentry;
 	char			iface_name[IF_NAMESIZE];
@@ -111,7 +112,7 @@ struct vpn_config {
 #endif
 	int			half_internet_routes;
 
-	unsigned int		persistent;
+    int		    persistent;
 
 #if HAVE_USR_SBIN_PPPD
 	char			*pppd_log;

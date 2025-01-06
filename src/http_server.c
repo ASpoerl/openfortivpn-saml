@@ -7,7 +7,6 @@
 
 #include "config.h"
 #include "log.h"
-#include "tunnel.h"
 #include "http.h" // for url_encode
 
 static void print_url(const struct vpn_config *cfg) {
@@ -28,10 +27,11 @@ static void print_url(const struct vpn_config *cfg) {
 	}
 
 	int required_size = 1 + snprintf(NULL, 0, uri_pattern, cfg->gateway_host, cfg->gateway_port, realm, encoded_realm);
-	char *url = alloca(required_size);
-	snprintf(url, required_size, uri_pattern, cfg->gateway_host, cfg->gateway_port, realm, encoded_realm);
+    char *url = alloca(required_size);
+    snprintf(url, required_size, uri_pattern, cfg->gateway_host, cfg->gateway_port, realm, encoded_realm);
+    cfg->saml_callback(url);
 
-	log_info("Authenticate at '%s'\n", url);
+    log_info("Authenticate at '%s'\n", url);
 }
 
 // Convenience function to send a response with a user readable status message and the
@@ -190,12 +190,15 @@ int wait_for_http_request(struct vpn_config *config) {
 	log_info("Listening for SAML login on port %d\n", saml_port);
 	print_url(config);
 
-	while(max_tries > 0) {
+    while(max_tries > 0) {
+        if (config->saml_port == 0)
+            break;
+
 		--max_tries;
 		FD_ZERO(&readfds);
 		FD_SET(server_fd, &readfds);
-		// Wait up to ten seconds
-		tv.tv_sec = 10;
+        // Wait up to 30 seconds
+        tv.tv_sec = 30;
 		tv.tv_usec = 0;
 
 		int retval = select(server_fd + 1, &readfds, NULL, NULL, &tv);
@@ -224,7 +227,12 @@ int wait_for_http_request(struct vpn_config *config) {
 
 	close(server_fd);
 
-	if (max_tries == 0 && strlen(config->saml_session_id) == 0) {
+    if (config->saml_port == 0) {
+        log_info("SAML request was canceled.\n");
+        return -2;
+    }
+
+    if (max_tries == 0 && strlen(config->saml_session_id) == 0) {
 		log_error("Finally failed to retrieve SAML authentication token\n");
 		return -1;
 	}

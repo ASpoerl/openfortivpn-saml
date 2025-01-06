@@ -1242,7 +1242,7 @@ err_tcp_connect:
 	return 1;
 }
 
-int run_tunnel(struct vpn_config *config)
+int run_tunnel(struct vpn_config *config, void (*state_callback)(int state), int (*stop_callback)())
 {
 	int ret;
 	struct tunnel tunnel = {
@@ -1255,8 +1255,10 @@ int run_tunnel(struct vpn_config *config)
 		.ipv4.ns2_addr.s_addr = 0,
 		.ipv4.dns_suffix = NULL,
 		.on_ppp_if_up = on_ppp_if_up,
-		.on_ppp_if_down = on_ppp_if_down
-	};
+        .on_ppp_if_down = on_ppp_if_down,
+        .state_callback = state_callback,
+        .stop_callback = stop_callback
+    };
 
 	// Step 0: get gateway host IP
 	log_debug("Resolving gateway host ip\n");
@@ -1328,6 +1330,7 @@ int run_tunnel(struct vpn_config *config)
 	}
 
 	tunnel.state = STATE_CONNECTING;
+    tunnel.state_callback(tunnel.state);
 
 	// Step 6: perform io between pppd and the gateway, while tunnel is up
 	log_debug("Starting IO through the tunnel\n");
@@ -1339,6 +1342,7 @@ int run_tunnel(struct vpn_config *config)
 			tunnel.on_ppp_if_down(&tunnel);
 
 	tunnel.state = STATE_DISCONNECTING;
+    tunnel.state_callback(tunnel.state);
 
 err_start_tunnel:
 	ret = pppd_terminate(&tunnel);
@@ -1346,6 +1350,7 @@ err_start_tunnel:
 err_tunnel:
 	log_info("Closed connection to gateway.\n");
 	tunnel.state = STATE_DOWN;
+    tunnel.state_callback(tunnel.state);
 
 	if (ssl_connect(&tunnel)) {
 		log_info("Could not log out.\n");

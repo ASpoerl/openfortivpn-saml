@@ -172,6 +172,22 @@ static os_semaphore_t sem_pppd_ready;
 static os_semaphore_t sem_if_config;
 static os_semaphore_t sem_stop_io;
 
+// Thread to monitor the stop signal
+static void *monitor_stop(void *arg)
+{
+    struct tunnel *tunnel = (struct tunnel *) arg;
+    while(1) {
+        pthread_testcancel();
+        if (tunnel->stop_callback())
+            break;
+        usleep(8000);
+    }
+
+    log_info("QFortiClient requested VPN disconnect.");
+    SEM_POST(&sem_stop_io);
+    return NULL;
+}
+
 /*
  * Thread to read bytes from the pppd pty, convert them to ppp packets and add
  * them to the 'pty_to_ssl' pool.
@@ -221,7 +237,7 @@ static void *pppd_read(void *arg)
 		// packets inside.
 		off_r = 0;
 		while (1) {
-			ssize_t frm_len, pktsize;
+            ssize_t frm_len, pktsize;
 			struct ppp_packet *packet, *repacket;
 
 			frm_len = hdlc_find_frame(buf, off_w, &off_r);
@@ -272,7 +288,7 @@ static void *pppd_read(void *arg)
 		if (off_r > 0 && off_r < off_w)
 			memmove(buf, &buf[off_r], off_w - off_r);
 		off_w = off_w - off_r;
-	}
+    }
 
 exit:
 	// Send message to main thread to stop other threads
@@ -298,7 +314,7 @@ static void *pppd_write(void *arg)
 	log_debug("%s thread\n", __func__);
 
 	while (1) {
-		struct ppp_packet *packet;
+        struct ppp_packet *packet;
 		ssize_t hdlc_bufsize, len, n, written;
 		uint8_t *hdlc_buffer;
 
@@ -320,7 +336,7 @@ static void *pppd_write(void *arg)
 
 		written = 0;
 		while (written < len) {
-			int sel;
+            int sel;
 
 			sel = select(tunnel->pppd_pty + 1, NULL, &write_fd,
 			             NULL, NULL);
@@ -582,7 +598,8 @@ static void *if_config(void *arg)
 				if (tunnel->on_ppp_if_up(tunnel))
 					goto error;
 			tunnel->state = STATE_UP;
-			break;
+            tunnel->state_callback(tunnel->state);
+            break;
 		} else if (timeout == 0) {
 			log_error("Timed out waiting for the ppp interface to be UP.\n");
 			break;
@@ -619,6 +636,7 @@ int io_loop(struct tunnel *tunnel)
 	pthread_t ssl_read_thread;
 	pthread_t ssl_write_thread;
 	pthread_t if_config_thread;
+    pthread_t monitor_stop_thread;
 
 	SEM_INIT(&sem_pppd_ready, 0, 0);
 	SEM_INIT(&sem_if_config, 0, 0);
@@ -699,12 +717,17 @@ int io_loop(struct tunnel *tunnel)
 		goto err_thread;
 	}
 
+    ret = pthread_create(&monitor_stop_thread, NULL, monitor_stop, tunnel);
+    if (ret != 0) {
+        log_debug("Error creating monitor_stop_thread: %s\n", strerror(ret));
+        goto err_thread;
+    }
+
 #if !HAVE_MACH_MACH_H
 	// Restore the signal for the main thread
 	pthread_sigmask(SIG_SETMASK, &oldset, NULL);
 #endif
 
-	// Wait for one of the thread to ask termination
 	SEM_WAIT(&sem_stop_io);
 
 	log_info("Cancelling threads...\n");
@@ -729,7 +752,11 @@ int io_loop(struct tunnel *tunnel)
 	if (ret != 0)
 		log_debug("Error canceling pty_read_thread: %s\n", strerror(ret));
 
-	log_info("Cleanup, joining threads...\n");
+    ret = pthread_cancel(monitor_stop_thread);
+    if (ret != 0)
+        log_debug("Error canceling monitor_stop_thread: %s\n", strerror(ret));
+
+    log_info("Cleanup, joining threads...\n");
 	// failure to clean is a possible zombie thread, consider it fatal
 	ret = pthread_join(if_config_thread, NULL);
 	if (ret != 0) {
@@ -761,7 +788,15 @@ int io_loop(struct tunnel *tunnel)
 		fatal = 1;
 	}
 
-	destroy_ssl_locks();
+    log_info("Joining monitor thread...");
+    ret = pthread_join(monitor_stop_thread, NULL);
+    log_info("done.\n");
+    if (ret != 0) {
+        log_debug("Error joining monitor_stop_thread: %s\n", strerror(ret));
+        fatal = 1;
+    }
+
+    destroy_ssl_locks();
 
 	destroy_ppp_packet_pool(&tunnel->pty_to_ssl_pool);
 	destroy_ppp_packet_pool(&tunnel->ssl_to_pty_pool);
