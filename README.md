@@ -1,5 +1,8 @@
-openfortivpn
+openfortivpn-saml
 ============
+
+This has been forked for development purposes only.
+Use at your own risk.
 
 openfortivpn is a client for PPP+TLS VPN tunnel services.
 It spawns a pppd process and operates the communication between the gateway and
